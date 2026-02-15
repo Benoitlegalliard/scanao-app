@@ -12,71 +12,79 @@ st.set_page_config(page_title="ScanAO", page_icon="🏗️", layout="wide")
 # --- RÉCUPÉRATION DE LA CLÉ API ---
 api_key = st.secrets.get("GEMINI_API_KEY")
 
-# --- CSS : NETTOYAGE TOTAL INTERFACE ---
+# --- CSS : FORCE LE DESIGN (BLINDAGE) ---
 st.markdown("""
 <style>
-    /* Cache les éléments inutiles */
-    #MainMenu, footer, header {visibility: hidden;}
-    .stApp { background-color: #f8f9fa; }
-    
-    /* Titres */
-    .main-title { font-size: 3rem; color: #0284c7 !important; margin-bottom: 0; font-weight: 700; }
-    .subtitle { font-size: 1.2rem; color: #64748b !important; margin-top: -10px; margin-bottom: 20px;}
+    /* 1. Force le thème clair et l'écriture noire partout */
+    .stApp, .stApp * {
+        background-color: #f8f9fa !important;
+        color: #1e293b !important;
+    }
 
-    /* --- ZONE D'UPLOAD ÉPURÉE (SANS BOUTON ANGLAIS) --- */
+    /* 2. Cache les éléments techniques */
+    #MainMenu, footer, header {visibility: hidden !important;}
+    
+    /* 3. Titres en Bleu */
+    .main-title { font-size: 3rem; color: #0284c7 !important; font-weight: 700; background: none !important;}
+    .subtitle { font-size: 1.2rem; color: #64748b !important; background: none !important;}
+
+    /* 4. ZONE D'UPLOAD : SUPPRESSION TOTALE DU BOUTON ET DES TEXTES ANGLAIS */
     [data-testid='stFileUploader'] section {
         background-color: white !important;
         border: 2px dashed #0284c7 !important;
-        padding: 50px !important;
+        padding: 60px !important;
         border-radius: 12px;
-        display: flex;
-        justify-content: center;
-        align-items: center;
+        display: flex !important;
+        justify-content: center !important;
+        align-items: center !important;
         min-height: 200px;
     }
     
-    /* Masque tout le contenu par défaut de Streamlit dans la zone */
-    [data-testid='stFileUploader'] section > div {
+    /* Cache absolument tout ce qui est à l'intérieur de la zone par défaut */
+    [data-testid='stFileUploader'] section div {
         display: none !important;
     }
 
-    /* Ajoute notre propre texte en Français au milieu */
+    /* Affiche notre texte en Français à la place */
     [data-testid='stFileUploader'] section::before {
         content: "📂 Cliquez ou glissez vos fichiers PDF ici pour lancer l'analyse";
         color: #0284c7 !important;
         font-weight: bold;
-        font-size: 1.3rem;
+        font-size: 1.4rem;
         text-align: center;
-        cursor: pointer;
+        display: block;
     }
 
-    /* Bouton Lancer l'analyse */
+    /* 5. BOUTON ANALYSE */
     div.stButton > button {
-        background-color: #0284c7; color: white; border-radius: 8px;
-        padding: 15px; font-weight: 600; border: none; width: 100%;
-        transition: 0.3s;
+        background-color: #0284c7 !important;
+        color: white !important;
+        border-radius: 8px !important;
+        padding: 15px !important;
+        font-weight: 600 !important;
+        border: none !important;
+        width: 100% !important;
     }
-    div.stButton > button:hover { background-color: #0369a1; transform: translateY(-1px); }
 
-    /* Carte de résultat */
+    /* 6. CARTE DE RÉSULTAT */
     .result-card {
-        background-color: white; padding: 30px; border-radius: 12px;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); color: #1e293b;
+        background-color: white !important;
+        padding: 30px !important;
+        border-radius: 12px !important;
+        border: 1px solid #e2e8f0 !important;
     }
 </style>
 """, unsafe_allow_html=True)
 
-# --- CLASSE PDF CORRIGÉE (LOGO + MARGES) ---
+# --- CLASSE PDF : FIX DE LA DEUXIÈME PAGE ---
 class ScanAOPDF(FPDF):
     def header(self):
         if os.path.exists("logo.png"):
-            # Positionne le logo à gauche
             self.image("logo.png", 10, 8, 25)
-        
-        self.set_font('Arial', 'B', 16)
+        self.set_font('Arial', 'B', 15)
         self.set_text_color(2, 132, 199)
         self.cell(0, 10, 'RAPPORT D\'ANALYSE SCANAO', 0, 1, 'R')
-        self.ln(15) # Espace crucial pour ne pas chevaucher le texte
+        self.ln(20) # Espace augmenté pour éviter le chevauchement sur page 2
 
     def footer(self):
         self.set_y(-15)
@@ -87,27 +95,18 @@ class ScanAOPDF(FPDF):
 def create_pdf(text_content, final_score, score_val):
     pdf = ScanAOPDF()
     pdf.add_page()
-    pdf.set_auto_page_break(auto=True, margin=20)
+    pdf.set_auto_page_break(auto=True, margin=25) # Marge de sécurité
     
-    # Affichage du Score en haut
+    # Score Global
     pdf.set_font("Arial", 'B', 12)
-    if score_val >= 7:
-        r, g, b = 220, 252, 231; tr, tg, tb = 22, 101, 52
-    elif score_val <= 4:
-        r, g, b = 254, 226, 226; tr, tg, tb = 153, 27, 27
-    else:
-        r, g, b = 255, 237, 213; tr, tg, tb = 154, 52, 18
-
-    pdf.set_fill_color(r, g, b)
-    pdf.set_text_color(tr, tg, tb)
+    pdf.set_fill_color(220, 252, 231) if score_val >= 7 else pdf.set_fill_color(255, 237, 213)
     pdf.cell(0, 12, f" SCORE GLOBAL : {final_score} ", 0, 1, 'C', fill=True)
-    pdf.ln(5)
+    pdf.ln(10)
 
-    # Contenu du rapport
     pdf.set_text_color(0, 0, 0)
-    pdf.set_font("Arial", size=10)
+    pdf.set_font("Arial", size=11)
     
-    # Nettoyage emojis pour éviter les bugs PDF
+    # Encodage sécurisé pour les accents
     clean_text = text_content.encode('latin-1', 'replace').decode('latin-1')
     
     for line in clean_text.split('\n'):
@@ -115,28 +114,27 @@ def create_pdf(text_content, final_score, score_val):
         if not line:
             pdf.ln(2)
             continue
-        
         if line.startswith("##"):
-            pdf.ln(4)
-            pdf.set_font("Arial", 'B', 12)
+            pdf.ln(5)
+            pdf.set_font("Arial", 'B', 13)
             pdf.set_text_color(2, 132, 199)
             pdf.cell(0, 10, line.replace("#", "").strip(), 0, 1)
             pdf.set_text_color(0, 0, 0)
-            pdf.set_font("Arial", size=10)
+            pdf.set_font("Arial", size=11)
         else:
-            pdf.multi_cell(0, 6, line.replace("**", ""))
+            pdf.multi_cell(0, 7, line.replace("**", ""))
             
     return pdf.output(dest='S').encode('latin-1')
 
-# --- LOGIQUE D'ANALYSE ---
+# --- LOGIQUE ANALYSE ---
 def analyze_document(text):
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('gemini-2.0-flash') # Version stable et rapide
-    prompt = "Tu es un expert en BTP. Analyse ce DCE et structure ton rapport avec un score IA (SCORE_IA: X/10), une description du projet, les finances, le planning et les points techniques."
-    response = model.generate_content(f"{prompt}\n\nCONTENU DU DOC :\n{text}")
+    model = genai.GenerativeModel('gemini-1.5-flash')
+    prompt = "Analyse ce DCE BTP et structure en : SCORE_IA: X/10, DESCRIPTION DU PROJET, FINANCES, PLANNING, TECHNIQUE."
+    response = model.generate_content(f"{prompt}\n\nDOCS:\n{text}")
     return response.text
 
-# --- AFFICHAGE ---
+# --- INTERFACE ---
 col1, col2 = st.columns([1, 5])
 with col1:
     if os.path.exists("logo.png"):
@@ -146,13 +144,13 @@ with col2:
     st.markdown('<div class="subtitle">Analyse instantanée de Dossier de Consultation</div>', unsafe_allow_html=True)
 
 if not api_key:
-    st.error("Configuration incomplète : Clé API manquante.")
+    st.error("Clé API manquante dans les secrets.")
     st.stop()
 
 files = st.file_uploader("", type=["pdf"], accept_multiple_files=True)
 
 if files:
-    if st.button(f"LANCER L'ANALYSE DE {len(files)} FICHIER(S)"):
+    if st.button(f"LANCER L'ANALYSE ({len(files)} fichiers)"):
         with st.spinner("Analyse en cours..."):
             all_text = ""
             for f in files:
@@ -161,14 +159,10 @@ if files:
                     all_text += page.extract_text() + "\n"
             
             res_text = analyze_document(all_text)
-            
-            # Extraction score pour le design
             score_match = re.search(r"SCORE_IA\s*[:]\s*([\d\.,]+)", res_text)
-            val = 0
-            if score_match:
-                val = float(score_match.group(1).replace(',', '.'))
+            val = float(score_match.group(1).replace(',', '.')) if score_match else 0
             
             st.markdown(f'<div class="result-card">{res_text}</div>', unsafe_allow_html=True)
             
             pdf_data = create_pdf(res_text, f"{val}/10", val)
-            st.download_button("📄 TÉLÉCHARGER LE RAPPORT PDF PRO", pdf_data, "Rapport_ScanAO.pdf", "application/pdf")
+            st.download_button("📄 TÉLÉCHARGER LE RAPPORT PDF", pdf_data, "Rapport_ScanAO.pdf", "application/pdf")
