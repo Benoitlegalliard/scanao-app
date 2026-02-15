@@ -9,18 +9,23 @@ import tempfile
 import os
 
 # --- CONFIGURATION ---
-st.set_page_config(page_title="ScanAO", page_icon="🔍", layout="wide")
+st.set_page_config(page_title="ScanAO", page_icon="🏗️", layout="wide")
 
 # --- RÉCUPÉRATION CLÉ API ---
 api_key = st.secrets.get("GEMINI_API_KEY")
 
-# --- CSS (INTERFACE WEB D'ORIGINE - RESTAURÉE) ---
+# --- CSS : DESIGN D'ORIGINE + FIX VISIBILITÉ ---
 st.markdown("""
 <style>
     #MainMenu, header, footer {visibility: hidden;}
     .stApp { background-color: #f8f9fa; }
-    h1, h2, h3 { color: #0f172a !important; font-family: 'Inter', sans-serif; }
-    .main-title { font-size: 3rem; color: #0284c7 !important; margin: 0; }
+    
+    /* FORCE LE NOIR SUR TOUTE L'APPLI POUR LA LISIBILITÉ */
+    .stApp, .stApp p, .stApp span, .stApp label, .stApp div { 
+        color: #1e293b !important; 
+    }
+    
+    .main-title { font-size: 3rem; color: #0284c7 !important; font-weight: 700; margin: 0; }
     .subtitle { font-size: 1.2rem; color: #64748b !important; margin-top: -5px; }
     
     .intro-box {
@@ -29,26 +34,22 @@ st.markdown("""
     }
 
     div.stButton > button {
-        background-color: #0284c7; color: white; border-radius: 8px;
+        background-color: #0284c7; color: white !important; border-radius: 8px;
         padding: 12px; font-weight: 600; border: none; width: 100%;
-        transition: 0.2s;
     }
-    div.stButton > button:hover { background-color: #0369a1; }
 
-    [data-testid="stFileUploaderFileName"] { color: #1e293b !important; font-weight: bold; }
-
-    .result-card, .result-card * {
+    /* FIX SPECIFIQUE NOMS DE FICHIERS BLANCS */
+    [data-testid="stFileUploaderFileName"] { 
         color: #1e293b !important; 
-        line-height: 1.6;
+        font-weight: bold !important; 
     }
 
-    .result-card h2 {
-        color: #0284c7 !important;
-        font-size: 1.4rem; 
-        border-bottom: 2px solid #f1f5f9;
-        padding-bottom: 10px; margin-top: 30px;
+    .result-card {
+        background-color: white !important;
+        padding: 25px; border-radius: 12px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1); border: 1px solid #e2e8f0;
     }
-    
+
     .score-badge {
         display: inline-block; padding: 8px 16px; border-radius: 20px;
         font-weight: 800; font-size: 1.2rem; margin-bottom: 20px; border: 2px solid;
@@ -61,7 +62,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- FONCTIONS ---
+# --- FONCTIONS PDF ---
 def extract_text_from_pdf(uploaded_file):
     try:
         pdf_reader = PdfReader(uploaded_file)
@@ -75,77 +76,49 @@ def create_pdf(text_content, final_score, score_val):
     class PDF(FPDF):
         def header(self):
             if os.path.exists("logo.png"):
-                self.image("logo.png", 10, 8, 20)
-            self.set_font('Arial', 'B', 20)
+                self.image("logo.png", 10, 8, 25)
+            self.set_font('Arial', 'B', 15)
             self.set_text_color(2, 132, 199)
-            self.cell(0, 10, 'Rapport ScanAO', 0, 1, 'C')
-            self.ln(5)
+            self.cell(0, 10, 'Rapport ScanAO', 0, 1, 'R')
+            self.ln(20)
 
     pdf = PDF()
     pdf.add_page()
     pdf.set_auto_page_break(auto=True, margin=15)
-    
-    # Badge Score
     pdf.set_font("Arial", 'B', 12)
     pdf.cell(0, 12, f" SCORE IA : {final_score} ", 0, 1, 'C')
     pdf.ln(10)
-
     pdf.set_font("Arial", size=10)
     clean_text = text_content.encode('latin-1', 'replace').decode('latin-1')
-    
-    for line in clean_text.split('\n'):
-        line = line.strip()
-        if not line: pdf.ln(2); continue
-        if line.startswith("##"):
-            pdf.ln(5); pdf.set_font("Arial", 'B', 14); pdf.set_text_color(2, 132, 199)
-            pdf.cell(0, 10, line.replace("#", "").strip(), 0, 1)
-            pdf.set_font("Arial", size=10); pdf.set_text_color(0, 0, 0)
-        else:
-            pdf.multi_cell(0, 5, line.replace("**", ""))
-            
+    pdf.multi_cell(0, 6, clean_text.replace("**", ""))
     return pdf.output(dest='S').encode('latin-1')
 
+# --- LOGIQUE IA (VERSION 2.0/2.5 FLASH) ---
 def analyze_document(api_key, text_content):
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('gemini-1.5-flash')
+    # RESTAURATION DU MODELE FONCTIONNEL
+    model = genai.GenerativeModel('gemini-2.0-flash') 
     
-    # RETOUR AU PROMPT DÉTAILLÉ (VERBEUX)
     prompt = """
-    Tu es un Expert Analyse DCE (Dossier de Consultation des Entreprises) BTP.
-    
-    MISSION 0 : SYNTHÈSE DU PROJET
-    - Trouve l'objet global du marché.
-    - Résume-le en 1 ou 2 phrases simples : Nature des travaux (Neuf/Réno) + Type de bâtiment + Lieu.
-
-    MISSION 1 : IDENTIFICATION DU LOT principal.
-
-    MISSION 2 : EXTRACTION RIGOUREUSE
-    - MARQUES : Distingue FABRICANT de produit générique.
-    - PÉNALITÉS : Financières contractuelles uniquement.
-    - AVANCE : Cherche explicitement le %.
-
-    ALGORITHME DE NOTATION (GO/NOGO) :
-    - Base : 10/10.
-    - Malus : Marché Public (-1), Réhabilitation (-1), Visite OBLIGATOIRE (-0.5), Pénalités retard > 1000€/jour (-1), Plafond illimité (-1), Site Occupé (-1), Délai < 6 mois (-0.5).
-    - Bonus : Avance > 10% (+0.5).
-
-    CONSIGNE FORMATAGE :
-    1. Ligne 1 : "SCORE_IA: [Note]" (ex: 7.5).
-    2. Structure : ## 📝 DESCRIPTION DU PROJET, ## 💶 1. FINANCES, ## 🗓️ 2. PLANNING, ## 🚨 3. TECHNIQUE.
+    Tu es un Expert Analyse DCE BTP. 
+    MISSION 0 : SYNTHÈSE DU PROJET (VUE HÉLICOPTÈRE)
+    MISSION 1 : IDENTIFICATION DU LOT
+    MISSION 2 : EXTRACTION RIGOUREUSE (MARQUES, PÉNALITÉS, AVANCE)
+    ALGORITHME DE NOTATION (GO/NOGO) : Base 10.
+    STRUCTURE : SCORE_IA: X/10, ## 📝 DESCRIPTION, ## 💶 1. FINANCES, ## 🗓️ 2. PLANNING, ## 🚨 3. TECHNIQUE.
     """
-    
     response = model.generate_content(prompt + "\n\nDOCUMENTS :\n" + text_content)
     return response.text
 
 # --- INTERFACE ---
 col1, col2 = st.columns([1,5])
 with col1:
-    if os.path.exists("logo.png"): st.image("logo.png", width=90)
+    if os.path.exists("logo.png"): st.image("logo.png", width=100)
 with col2:
     st.markdown('<h1 class="main-title">ScanAO</h1>', unsafe_allow_html=True)
     st.markdown('<div class="subtitle">Analyse instantanée de Dossier de Consultation.</div>', unsafe_allow_html=True)
 
-uploaded_files = st.file_uploader("Dossier de consultation (PDF)", type=["pdf"], accept_multiple_files=True)
+uploaded_files = st.file_uploader("", type=["pdf"], accept_multiple_files=True)
 
 if uploaded_files:
     if st.button(f"SCANNER ({len(uploaded_files)} fichiers) 🚀"):
@@ -161,8 +134,7 @@ if uploaded_files:
                     val = float(score_match.group(1).replace(',', '.')) if score_match else 0
                     
                     st.markdown(f'<div class="result-card">{res_text}</div>', unsafe_allow_html=True)
-                    
                     pdf_bytes = create_pdf(res_text, f"{val}/10", val)
-                    st.download_button("📄 TÉLÉCHARGER LE RAPPORT PDF", pdf_bytes, "Rapport_ScanAO.pdf", "application/pdf")
+                    st.download_button("Télécharger le Rapport PDF", pdf_bytes, "Rapport_ScanAO.pdf", "application/pdf")
                 except Exception as e:
                     st.error(f"Erreur : {e}")
