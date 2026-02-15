@@ -8,65 +8,79 @@ import requests
 import tempfile
 import os
 
-# --- CONFIGURATION ---
+# --- CONFIGURATION PAGE & THEME ---
 st.set_page_config(page_title="ScanAO", page_icon="🏗️", layout="wide")
 
-# --- GESTION DES SECRETS (CLÉ API CACHÉE) ---
-# Le code cherche la clé dans les secrets du serveur Streamlit
+# --- GESTION DES SECRETS (CLÉ API) ---
 try:
     api_key = st.secrets["GEMINI_API_KEY"]
-except FileNotFoundError:
+except:
     try:
-        # Fallback pour le dev local si tu as un fichier .streamlit/secrets.toml
-        api_key = st.secrets["GEMINI_API_KEY"]
+        api_key = st.secrets["GEMINI_API_KEY"] # Fallback local
     except:
         api_key = None
 
-# --- CSS PRO (NETTOYAGE INTERFACE) ---
+# --- CSS PRO (DESIGN & TRADUCTION VISUELLE) ---
 st.markdown("""
 <style>
-    /* Masquer les menus Streamlit par défaut */
+    /* Masquer les menus techniques */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
     
-    /* Fond et typo */
+    /* Force le fond général en clair (au cas où) */
     .stApp { background-color: #f8f9fa; }
     h1, h2, h3 { color: #0f172a !important; font-family: 'Helvetica', sans-serif; }
     
-    /* Style du Titre Principal */
+    /* --- DESIGN UPLOAD PRO --- */
+    /* Cible la zone de dépôt précise */
+    [data-testid='stFileUploader'] section {
+        background-color: white !important; /* Force le fond blanc */
+        border: 2px dashed #0284c7 !important; /* Bordure bleue */
+        padding: 30px;
+        border-radius: 10px;
+    }
+    
+    /* Force TOUS les textes dans la zone de dépôt à être noirs/gris foncé */
+    [data-testid='stFileUploader'] div, 
+    [data-testid='stFileUploader'] span, 
+    [data-testid='stFileUploader'] small,
+    [data-testid='stFileUploader'] button {
+        color: #1e293b !important;
+    }
+
+    /* ASTUCE TRADUCTION : Masquer le texte "Drag and drop files here" */
+    [data-testid='stFileUploader'] section > div > div > span {
+        display: none;
+    }
+    
+    /* ASTUCE TRADUCTION : Ajouter le texte Français */
+    [data-testid='stFileUploader'] section > div > div::before {
+        content: "📂 Glissez vos fichiers PDF ici (ou cliquez sur Browse)";
+        color: #0284c7 !important;
+        font-weight: bold;
+        font-size: 1.1rem;
+        display: block;
+        margin-bottom: 10px;
+    }
+
+    /* --- RESTE DU DESIGN --- */
     .main-title { font-size: 3rem; color: #0284c7 !important; margin-bottom: 0; font-weight: 700; }
     .subtitle { font-size: 1.2rem; color: #64748b !important; margin-top: -10px; margin-bottom: 20px;}
     
-    /* Zone de drop fichier plus pro */
-    [data-testid='stFileUploader'] { 
-        background-color: white; 
-        border: 2px dashed #cbd5e1; 
-        padding: 30px; 
-        border-radius: 10px;
-        text-align: center;
-    }
-    
-    /* Boutons stylisés */
     div.stButton > button {
         background-color: #0284c7; color: white; border-radius: 8px;
         padding: 12px 24px; font-weight: 600; border: none; width: 100%;
         transition: 0.2s; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
     }
-    div.stButton > button:hover { background-color: #0369a1; box-shadow: 0 2px 4px -1px rgba(0, 0, 0, 0.1); }
+    div.stButton > button:hover { background-color: #0369a1; }
 
-    /* Carte de résultat propre */
     .result-card {
-        background-color: white;
-        padding: 25px;
-        border-radius: 12px;
-        box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
-        margin-top: 20px;
-        color: #1e293b !important;
-        line-height: 1.6;
+        background-color: white; padding: 25px; border-radius: 12px;
+        box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1); margin-top: 20px;
+        color: #1e293b !important; line-height: 1.6;
     }
     
-    /* Badge Score */
     .score-badge {
         display: inline-block; padding: 8px 16px; border-radius: 20px;
         font-weight: 800; font-size: 1.2rem; margin-bottom: 20px; border: 2px solid;
@@ -90,10 +104,8 @@ def extract_text_from_pdf(uploaded_file):
 def create_pdf(text_content, final_score, score_val):
     class PDF(FPDF):
         def header(self):
-            # LOGO LOCAL
             if os.path.exists("logo.png"):
                 self.image("logo.png", 10, 8, 20)
-            
             self.set_font('Arial', 'B', 20)
             self.set_text_color(2, 132, 199)
             self.cell(0, 10, 'Rapport ScanAO', 0, 1, 'C')
@@ -133,9 +145,7 @@ def create_pdf(text_content, final_score, score_val):
         line = line.strip()
         if not line:
             pdf.ln(2); continue
-            
         safe_line = line.encode('latin-1', 'replace').decode('latin-1')
-        
         if safe_line.startswith("##"):
             pdf.ln(5)
             pdf.set_font("Arial", 'B', 14)
@@ -175,17 +185,14 @@ def analyze_document(api_key, text_content):
     - MARQUES : Distingue FABRICANT (Nom Propre) de produit générique.
     - PÉNALITÉS : Financières contractuelles uniquement.
     - AVANCE : Cherche le %.
-    
     ALGORITHME DE NOTATION (GO/NOGO) :
     - Base : 10/10.
     - Malus : Marché Public (-1), Réhabilitation (-1), Visite OBLIGATOIRE (-0.5), Pénalités retard > 1000€/jour (-1), Plafond illimité (-1), Site Occupé (-1), Délai < 6 mois (-0.5).
     - Bonus : Avance > 10% (+0.5), > 20% (+1).
-
     CONSIGNE FORMATAGE (A RESPECTER STRICTEMENT) :
     1. Ligne 1 : "SCORE_IA: [Note]" (ex: 7.5).
     2. Ligne 2 : "Voici l'analyse du lot : [Nom du Lot détecté]".
     3. SUITE : Respecte la structure ci-dessous.
-
     --- STRUCTURE DU RAPPORT ---
     ## 📝 DESCRIPTION DU PROJET
     [Résumé du projet global]
@@ -227,19 +234,20 @@ def analyze_document(api_key, text_content):
 col1, col2 = st.columns([1, 6])
 with col1:
     if os.path.exists("logo.png"):
-        st.image("logo.png", width=100)
+        st.image("logo.png", width=120)
     else:
-        st.write("LOGO?") # Placeholder si pas de fichier
+        st.write("LOGO")
 with col2:
     st.markdown('<h1 class="main-title">ScanAO</h1>', unsafe_allow_html=True)
     st.markdown('<div class="subtitle">Analyse instantanée de Dossier de Consultation</div>', unsafe_allow_html=True)
 
-# Vérification Clé API
+# Clé API manquante ?
 if not api_key:
-    st.error("⚠️ Clé API non configurée sur le serveur. Contactez l'administrateur.")
+    st.error("⚠️ Clé API non configurée. Vérifiez 'st.secrets'.")
     st.stop()
 
-uploaded_files = st.file_uploader("Déposez votre Dossier de Consultation (PDF uniquement)", type=["pdf"], accept_multiple_files=True)
+# Zone de dépôt avec label vide (géré par CSS)
+uploaded_files = st.file_uploader(" ", type=["pdf"], accept_multiple_files=True)
 
 if uploaded_files:
     if st.button(f"LANCER L'ANALYSE ({len(uploaded_files)} fichiers)"):
